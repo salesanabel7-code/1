@@ -1,0 +1,208 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Heart, Volume2, Send, Quote, ChevronLeft, ChevronRight, Sparkles, Clock } from 'lucide-react';
+import * as THREE from 'three';
+
+const App = () => {
+  const [activeCard, setActiveCard] = useState(null); // 'letter' or 'memories'
+  const [theme, setTheme] = useState('Sweetheart');
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [imageIndex, setImageIndex] = useState(0);
+  const [timeLeft, setTimeLeft] = useState("");
+  const canvasRef = useRef(null);
+  const apiKey = ""; 
+
+  const themes = {
+    Sweetheart: { color: "#ff69b4", bg: "from-pink-900 to-rose-950", accent: "text-pink-300", pulse: 1.2 },
+    Eternity: { color: "#da70d6", bg: "from-purple-900 to-indigo-950", accent: "text-purple-300", pulse: 0.8 },
+    Passion: { color: "#ff0000", bg: "from-red-900 to-black", accent: "text-red-400", pulse: 2.5 },
+  };
+
+  const galleryData = [
+    { url: "IMG-20260228-WA0008.jpg", quote: "Some people make the world special just by being in it. You are one of them.", tag: "The Original" },
+    { url: "https://images.unsplash.com/photo-1516589174184-c662ff299107?auto=format&fit=crop&q=80&w=600", quote: "The first day we met, the world felt a little brighter.", tag: "Beginnings" },
+    { url: "https://images.unsplash.com/photo-1518199266791-5375a83190b7?auto=format&fit=crop&q=80&w=600", quote: "That smile of yours? It's my favorite view.", tag: "Radiance" },
+    { url: "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&q=80&w=600", quote: "Judenet IntelliSoft Solutions: Where tech meets the heart.", tag: "Signature" }
+  ];
+
+  const activeTheme = themes[theme];
+
+  // Countdown Logic
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const target = new Date();
+      target.setDate(target.getDate() + (5 + 7 - target.getDay()) % 7);
+      target.setHours(18, 0, 0, 0);
+      const diff = target - new Date();
+      
+      const d = Math.floor(diff / (1000 * 60 * 60 * 24));
+      const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
+      const m = Math.floor((diff / 1000 / 60) % 60);
+      const s = Math.floor((diff / 1000) % 60);
+      setTimeLeft(`${d}d ${h}h ${m}m ${s}s`);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Three.js Scene
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.z = 10;
+    const renderer = new THREE.WebGLRenderer({ canvas: canvasRef.current, alpha: true, antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+
+    const heartShape = new THREE.Shape();
+    heartShape.moveTo(0, 0);
+    heartShape.bezierCurveTo(0, -0.3, -0.6, -0.3, -0.6, 0);
+    heartShape.bezierCurveTo(-0.6, 0.3, 0, 0.6, 0, 1);
+    heartShape.bezierCurveTo(0, 0.6, 0.6, 0.3, 0.6, 0);
+    heartShape.bezierCurveTo(0.6, -0.3, 0, -0.3, 0, 0);
+
+    const geometry = new THREE.ExtrudeGeometry(heartShape, { depth: 0.4, bevelEnabled: true, bevelSize: 0.1 });
+    const material = new THREE.MeshStandardMaterial({ color: activeTheme.color, metalness: 0.7, roughness: 0.2 });
+    const heartMesh = new THREE.Mesh(geometry, material);
+    heartMesh.rotation.x = Math.PI;
+    heartMesh.scale.set(2.5, 2.5, 2.5);
+    scene.add(heartMesh);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+    const light = new THREE.PointLight(0xffffff, 1);
+    light.position.set(5, 5, 5);
+    scene.add(light);
+
+    let frame;
+    const animate = (time) => {
+      const t = time * 0.001;
+      heartMesh.rotation.y = t * 0.5;
+      const s = 2.5 + Math.sin(t * activeTheme.pulse) * 0.2;
+      heartMesh.scale.set(s, s, s);
+      renderer.render(scene, camera);
+      frame = requestAnimationFrame(animate);
+    };
+    animate(0);
+
+    const handleResize = () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => { cancelAnimationFrame(frame); window.removeEventListener('resize', handleResize); };
+  }, [theme]);
+
+  const speak = async () => {
+    if (isSpeaking) return;
+    setIsSpeaking(true);
+    const text = `Hi Ruth! Jude here. I built this for you because you are special. Current mood: ${theme}. Quote: ${galleryData[imageIndex].quote}`;
+    try {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text }] }],
+          generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } } } },
+          model: "gemini-2.5-flash-preview-tts"
+        })
+      });
+      const data = await res.json();
+      const pcm = data.candidates[0].content.parts[0].inlineData.data;
+      const binary = atob(pcm);
+      const view = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) view[i] = binary.charCodeAt(i);
+      const header = (len) => {
+        const b = new ArrayBuffer(44); const v = new DataView(b);
+        const s = (o, str) => { for(let i=0; i<str.length; i++) v.setUint8(o+i, str.charCodeAt(i)); };
+        s(0, 'RIFF'); v.setUint32(4, 36+len, true); s(8, 'WAVE'); s(12, 'fmt ');
+        v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+        v.setUint32(24, 24000, true); v.setUint32(28, 48000, true); v.setUint16(32, 2, true);
+        v.setUint16(34, 16, true); s(36, 'data'); v.setUint32(40, len, true);
+        return b;
+      };
+      const audio = new Audio(URL.createObjectURL(new Blob([header(binary.length), view], { type: 'audio/wav' })));
+      audio.onended = () => setIsSpeaking(false);
+      audio.play();
+    } catch (e) { setIsSpeaking(false); }
+  };
+
+  return (
+    <div className={`relative min-h-screen flex flex-col items-center justify-between overflow-hidden bg-gradient-to-b ${activeTheme.bg} text-white p-6`}>
+      <canvas ref={canvasRef} className="absolute inset-0 z-0 pointer-events-none" />
+
+      {/* Top Bar */}
+      <motion.div initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="relative z-10 w-full flex justify-between items-center max-w-lg">
+        <div>
+          <h2 className={`font-bold tracking-widest ${activeTheme.accent}`}>RUTH & JUDE</h2>
+          <p className="text-[8px] tracking-[0.4em] opacity-50 uppercase">Judenet IntelliSoft Solutions</p>
+        </div>
+        <button onClick={speak} className={`p-3 rounded-full bg-white/10 backdrop-blur-xl border border-white/20 ${isSpeaking ? 'animate-pulse scale-110' : ''}`}>
+          <Volume2 size={20} />
+        </button>
+      </motion.div>
+
+      {/* Center Content */}
+      <div className="relative z-10 flex-1 flex items-center justify-center w-full max-w-lg">
+        <AnimatePresence>
+          {!activeCard && (
+            <motion.button 
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }}
+              onClick={() => setActiveCard('letter')}
+              className="px-12 py-6 bg-white/10 backdrop-blur-2xl border border-white/20 rounded-full font-bold tracking-widest shadow-2xl"
+            >
+              TAP TO ENTER
+            </motion.button>
+          )}
+
+          {activeCard === 'letter' && (
+            <motion.div initial={{ y: 100, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -100, opacity: 0 }} className="w-full bg-black/60 backdrop-blur-3xl p-8 rounded-[3rem] border border-white/20 shadow-2xl text-center">
+              <h3 className={`text-2xl font-serif italic mb-4 ${activeTheme.accent}`}>A Message for Ruth</h3>
+              <p className="text-sm leading-relaxed text-white/80 mb-6 italic">
+                "Meeting you felt like a scene from a movie. You have an incredible energy that brightens everything up. I hope this 3D world reminds you of how special you are."
+              </p>
+              <div className="flex gap-4">
+                <button onClick={() => setActiveCard('memories')} className="flex-1 py-4 bg-white text-black rounded-2xl font-bold text-xs uppercase tracking-widest">Memories</button>
+                <button onClick={() => setActiveCard(null)} className="flex-1 py-4 bg-white/10 rounded-2xl border border-white/10 text-xs uppercase">Close</button>
+              </div>
+            </motion.div>
+          )}
+
+          {activeCard === 'memories' && (
+            <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.8, opacity: 0 }} className="w-full bg-black/60 backdrop-blur-3xl p-6 rounded-[3rem] border border-white/20 shadow-2xl">
+              <div className="relative aspect-[4/5] rounded-2xl overflow-hidden mb-6">
+                <AnimatePresence mode="wait">
+                  <motion.img key={imageIndex} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} src={galleryData[imageIndex].url} className="w-full h-full object-cover" />
+                </AnimatePresence>
+                <div className="absolute inset-0 flex items-center justify-between px-2">
+                  <button onClick={() => setImageIndex(i => (i-1+galleryData.length)%galleryData.length)} className="p-2 bg-black/40 rounded-full"><ChevronLeft /></button>
+                  <button onClick={() => setImageIndex(i => (i+1)%galleryData.length)} className="p-2 bg-black/40 rounded-full"><ChevronRight /></button>
+                </div>
+              </div>
+              <p className="text-center italic text-sm text-white/90 mb-6 font-serif px-2">"{galleryData[imageIndex].quote}"</p>
+              <button onClick={() => setActiveCard('letter')} className="w-full py-4 bg-white/10 rounded-2xl border border-white/10 text-xs uppercase tracking-widest">Back to Letter</button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Bottom Controls */}
+      <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="relative z-10 w-full max-w-lg space-y-4">
+        <div className="text-center">
+          <div className="inline-flex items-center gap-2 px-4 py-2 bg-black/40 backdrop-blur-md rounded-full border border-white/10 text-[10px] tracking-widest">
+            <Clock size={12} className={activeTheme.accent} /> {timeLeft} UNTIL I SEE RUTH
+          </div>
+        </div>
+        <div className="flex gap-2 p-2 bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10">
+          {Object.keys(themes).map(t => (
+            <button key={t} onClick={() => setTheme(t)} className={`flex-1 py-3 text-[10px] font-bold rounded-2xl uppercase transition-all ${theme === t ? 'bg-white text-black' : 'text-white/40'}`}>
+              {t}
+            </button>
+          ))}
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
+export default App;
